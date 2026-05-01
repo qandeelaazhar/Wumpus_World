@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wumpus World</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 0; min-height: 100vh;
+            background: linear-gradient(135deg, #ffe4e6 0%, #fbcfe8 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #831843;
+        }
+        h1 {
+            color: #db2777;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.05);
+            font-weight: 800;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            padding: 15px 25px; border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(219, 39, 119, 0.1);
+            margin-bottom: 20px; display: flex; gap: 15px; align-items: center;
+            border: 2px solid #fce7f3;
+        }
+        .game-area { display: flex; gap: 30px; align-items: flex-start; justify-content: center; padding: 20px; }
+
+        #grid-container {
+            display: grid; gap: 10px; background: rgba(255, 255, 255, 0.5);
+            padding: 15px; border-radius: 20px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+            border: 2px solid #fdf2f8;
+        }
+        .cell {
+            width: 75px; height: 75px; border-radius: 12px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-size: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.03);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+
+        .dashboard {
+            background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(10px);
+            padding: 25px; border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(219, 39, 119, 0.1);
+            width: 280px; border: 2px solid #fdf2f8;
+        }
+
+        /* KB Panel - Pink Terminal Style */
+        .kb-panel {
+            background: #4d0a2d; color: #f9a8d4; padding: 12px; border-radius: 12px;
+            font-family: 'Consolas', monospace; font-size: 11px;
+            max-height: 200px; overflow-y: auto; margin-top: 10px;
+            border: 2px solid #be185d;
+        }
+
+        input[type="number"] {
+            border: 2px solid #f9a8d4; border-radius: 5px; padding: 3px; color: #db2777;
+        }
+
+        button {
+            padding: 10px 20px; border-radius: 12px; border: none;
+            cursor: pointer; font-weight: 700; transition: all 0.3s;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        #start-btn { background-color: #f472b6; color: white; }
+        #move-btn { background-color: #db2777; color: white; }
+        button:hover { opacity: 0.9; transform: scale(1.05); box-shadow: 0 5px 15px rgba(219, 39, 119, 0.3); }
+
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(131, 24, 67, 0.3); backdrop-filter: blur(6px);
+            z-index: 1000; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: white; padding: 40px; border-radius: 30px;
+            text-align: center; box-shadow: 0 25px 50px rgba(0,0,0,0.15);
+            max-width: 400px; border: 4px solid #fbcfe8;
+        }
+       
+        hr { border: 0; border-top: 2px solid #fce7f3; margin: 15px 0; }
+    </style>
+
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+</head>
+<body>
+    <h1>🌸 Wumpus World 🌸</h1>
+   
+    <div class="controls">
+        <label>Rows: <input type="number" id="rows" value="4" min="2" max="6" style="width: 40px;"></label>
+        <label>Cols: <input type="number" id="cols" value="4" min="2" max="6" style="width: 40px;"></label>
+        <button id="start-btn" py-click="generate_grid">Reset World</button>
+        <button id="move-btn" py-click="make_next_move">Step Agent</button>
+    </div>
+
+    <div class="game-area">
+        <div id="grid-container"></div>
+       
+        <div class="dashboard">
+            <h3 style="margin-top: 0; color: #be185d;">Status Center</h3>
+            <p><strong>Percepts:</strong> <span id="percepts-display" style="color: #db2777;">None</span></p>
+            <p><strong>Score:</strong> <span id="score-display" style="color: #be185d; font-size: 20px; font-weight: bold;">0</span></p>
+            <p><strong>Logic Steps:</strong> <span id="steps-display">0</span></p>
+            <hr>
+            <strong style="font-size: 12px; color: #db2777;">CNF Knowledge Base:</strong>
+            <div id="kb-display" class="kb-panel">{}</div>
+        </div>
+    </div>
+
+    <div id="custom-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h2 id="modal-title" style="color: #db2777;">Result</h2>
+            <p id="modal-message" style="font-size: 18px; color: #831843;"></p>
+            <button style="background: #db2777; color: white; padding: 12px 40px; margin-top: 20px;" py-click="close_modal">Try Again ✨</button>
+        </div>
+    </div>
+
+<py-script>
+import random
+from pyscript import document, window
+
+# Global State
+agent_pos = {"r": 0, "c": 0}
+wumpus_pos = (-1, -1)
+gold_pos = (-1, -1)
+grid_data = {}
+score = 0
+inference_steps = 0
+game_over = False
+kb = [] # List of sets (Each set is a clause in CNF)
+
+def show_modal(title, message):
+    document.getElementById("modal-title").innerText = title
+    document.getElementById("modal-message").innerText = message
+    document.getElementById("custom-modal").style.display = "flex"
+
+def close_modal(event=None):
+    document.getElementById("custom-modal").style.display = "none"
+    generate_grid()
+
+def get_neighbors(r, c):
+    rows, cols = int(document.getElementById('rows').value), int(document.getElementById('cols').value)
+    res = []
+    if r > 0: res.append((r-1, c))
+    if r < rows-1: res.append((r+1, c))
+    if c > 0: res.append((r, c-1))
+    if c < cols-1: res.append((r, c+1))
+    return res
+
+def update_kb_display():
+    display = document.getElementById("kb-display")
+    display.innerText = "\n".join([str(sorted(list(c))).replace("'", "") for c in kb[-15:]])
+
+def resolve(clause1, clause2):
+    global inference_steps
+    for lit in clause1:
+        complement = lit[1:] if lit.startswith('~') else '~' + lit
+        if complement in clause2:
+            inference_steps += 1
+            new_clause = (clause1 | clause2) - {lit, complement}
+            return new_clause
+    return None
+
+def ask_kb_safe(r, c):
+    global inference_steps
+    for hazard in [f"P{r}{c}", f"W{r}{c}"]:
+        test_kb = list(kb)
+        test_kb.append({hazard})
+       
+        new_discovered = True
+        while new_discovered:
+            new_discovered = False
+            for i in range(len(test_kb)):
+                for j in range(i + 1, len(test_kb)):
+                    res = resolve(test_kb[i], test_kb[j])
+                    if res is not None:
+                        if len(res) == 0: return True
+                        if res not in test_kb:
+                            test_kb.append(res)
+                            new_discovered = True
+                            if len(test_kb) > 60: break
+    return False
+
+def tell_kb(r, c, percepts):
+    neighbors = get_neighbors(r, c)
+    if {f"~P{r}{c}"} not in kb: kb.append({f"~P{r}{c}"})
+    if {f"~W{r}{c}"} not in kb: kb.append({f"~W{r}{c}"})
+
+    if 'Breeze 💨' not in percepts:
+        for nr, nc in neighbors:
+            if {f"~P{nr}{nc}"} not in kb: kb.append({f"~P{nr}{nc}"})
+    else:
+        pit_clause = {f"P{nr}{nc}" for nr, nc in neighbors}
+        if pit_clause not in kb: kb.append(pit_clause)
+
+    if 'Stench 🦨' not in percepts:
+        for nr, nc in neighbors:
+            if {f"~W{nr}{nc}"} not in kb: kb.append({f"~W{nr}{nc}"})
+    else:
+        wumpus_clause = {f"W{nr}{nc}" for nr, nc in neighbors}
+        if wumpus_clause not in kb: kb.append(wumpus_clause)
+   
+    update_kb_display()
+
+def make_next_move(event=None):
+    global agent_pos, score, game_over
+    if game_over: return
+
+    curr_r, curr_c = agent_pos["r"], agent_pos["c"]
+    neighbors = get_neighbors(curr_r, curr_c)
+    random.shuffle(neighbors)
+
+    target = None
+    for nr, nc in neighbors:
+        if not grid_data[f"{nr},{nc}"]['visited']:
+            if ask_kb_safe(nr, nc):
+                target = (nr, nc)
+                break
+   
+    if not target:
+        for nr, nc in neighbors:
+            if not grid_data[f"{nr},{nc}"]['visited']:
+                target = (nr, nc)
+                break
+   
+    if not target: target = neighbors[0]
+
+    document.getElementById(f"cell-{curr_r},{curr_c}").innerHTML = grid_data[f"{curr_r},{curr_c}"]["icons"]
+   
+    agent_pos = {"r": target[0], "c": target[1]}
+    new_id = f"{agent_pos['r']},{agent_pos['c']}"
+    grid_data[new_id]['visited'] = True
+    score -= 1
+   
+    ui_cell = document.getElementById(f"cell-{new_id}")
+    icons = grid_data[new_id]["icons"]
+   
+    if grid_data[new_id]['hasWumpus'] or grid_data[new_id]['hasPit']:
+        ui_cell.style.background = "#f43f5e"
+        ui_cell.innerHTML = "💥"
+        game_over = True
+        show_modal("Oh No! 😿", "The agent hit a hazard!")
+    elif (agent_pos["r"], agent_pos["c"]) == gold_pos:
+        ui_cell.style.background = "#fde047"
+        ui_cell.innerHTML = "💖<br>🤖"
+        score += 1000
+        game_over = True
+        show_modal("YAY! ✨", f"Found the Heart! Final Score: {score}")
+    else:
+        ui_cell.style.background = "#f9a8d4"
+        ui_cell.innerHTML = icons + "<br>🤖"
+        sense(agent_pos["r"], agent_pos["c"])
+
+    document.getElementById("score-display").innerText = str(score)
+    document.getElementById("steps-display").innerText = str(inference_steps)
+
+def sense(r, c):
+    percepts = []
+    for nr, nc in get_neighbors(r, c):
+        if grid_data[f"{nr},{nc}"]["hasPit"]: percepts.append('Breeze 💨')
+        if grid_data[f"{nr},{nc}"]["hasWumpus"]: percepts.append('Stench 🦨')
+   
+    p_text = ", ".join(list(set(percepts))) if percepts else "Clear 🎀"
+    document.getElementById("percepts-display").innerText = p_text
+    tell_kb(r, c, percepts)
+
+def generate_grid(event=None):
+    global agent_pos, wumpus_pos, gold_pos, grid_data, score, inference_steps, game_over, kb
+    grid_container = document.getElementById('grid-container')
+    grid_container.innerHTML = ""
+    rows, cols = int(document.getElementById('rows').value), int(document.getElementById('cols').value)
+    grid_container.style.gridTemplateColumns = f"repeat({cols}, 75px)"
+   
+    agent_pos, grid_data, kb, score, inference_steps, game_over = {"r": 0, "c": 0}, {}, [], 0, 0, False
+    wumpus_pos = (random.randint(0, rows-1), random.randint(0, cols-1))
+    gold_pos = (random.randint(0, rows-1), random.randint(0, cols-1))
+    while wumpus_pos == (0,0): wumpus_pos = (random.randint(0, rows-1), random.randint(0, cols-1))
+    while gold_pos == (0,0) or gold_pos == wumpus_pos: gold_pos = (random.randint(0, rows-1), random.randint(0, cols-1))
+
+    for r in range(rows):
+        for c in range(cols):
+            cell_id = f"{r},{c}"
+            has_pit = random.random() < 0.15 and (r,c)!=(0,0) and (r,c)!=gold_pos
+            grid_data[cell_id] = {"hasWumpus": (r,c)==wumpus_pos, "hasPit": has_pit, "visited": (r==0 and c==0), "icons": ""}
+
+    for r in range(rows):
+        for c in range(cols):
+            cell_id = f"{r},{c}"
+            icons = "👾" if grid_data[cell_id]["hasWumpus"] else ""
+            icons += "🕳️" if grid_data[cell_id]["hasPit"] else ""
+            icons += "💖" if (r,c)==gold_pos else ""
+            for nr, nc in get_neighbors(r, c):
+                if grid_data[f"{nr},{nc}"]["hasPit"] and "💨" not in icons: icons += "💨"
+                if grid_data[f"{nr},{nc}"]["hasWumpus"] and "🦨" not in icons: icons += "🦨"
+            grid_data[cell_id]["icons"] = icons
+           
+            el = window.document.createElement('div')
+            el.className = 'cell'; el.id = f"cell-{cell_id}"
+            if r==0 and c==0:
+                el.style.background = "#f9a8d4"; el.innerHTML = "🤖"
+            else:
+                el.style.background = "#fbcfe8"; el.innerHTML = ""
+            grid_container.appendChild(el)
+   
+    sense(0, 0)
+    document.getElementById("score-display").innerText = "0"
+    document.getElementById("steps-display").innerText = "0"
+generate_grid()
+</py-script>
+</body>
+</html>
